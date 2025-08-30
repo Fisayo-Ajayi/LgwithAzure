@@ -3,49 +3,41 @@ import joblib
 import numpy as np
 import os
 
-# Initialize Flask app
 app = Flask(__name__)
 
-# --- Load Models ---
-# Ensure these files exist in the "models" directory at the project root
-SCALER_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "scaler.pkl")
-KMEANS_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "kmeans.pkl")
+# Load all models from models/ folder
+models = {}
+MODEL_FOLDER = "models"
 
-scaler = joblib.load(SCALER_PATH)
-kmeans = joblib.load(KMEANS_PATH)
+if not os.path.exists(MODEL_FOLDER):
+    raise FileNotFoundError(f"'{MODEL_FOLDER}' folder not found. Upload your model(s) here.")
 
+for fname in os.listdir(MODEL_FOLDER):
+    if fname.endswith(".pkl"):
+        model_name = fname.replace(".pkl", "")
+        models[model_name] = joblib.load(os.path.join(MODEL_FOLDER, fname))
 
-# --- Routes ---
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
-    return jsonify({
-        "message": "✅ LG Project API is running on Vercel!",
-        "endpoints": {
-            "/predict": "POST features to get a cluster prediction"
-        }
-    })
+    return jsonify({"message": "✅ SuccessLG API running on Heroku"})
 
-
-@app.route("/predict", methods=["POST"])
-def predict():
+@app.route("/predict/<model_name>", methods=["POST"])
+def predict(model_name):
+    if model_name not in models:
+        return jsonify({"error": f"Model '{model_name}' not found"}), 404
     try:
         data = request.get_json()
+        if not data or "features" not in data:
+            return jsonify({"error": "Request must include 'features' key"}), 400
 
-        if "features" not in data:
-            return jsonify({"error": "Missing 'features' key in request body"}), 400
-
-        # Convert to numpy and scale
         features = np.array(data["features"]).reshape(1, -1)
-        features_scaled = scaler.transform(features)
-
-        # Predict with KMeans
-        cluster = kmeans.predict(features_scaled)[0]
-
-        return jsonify({
-            "cluster": int(cluster),
-            "input_features": data["features"]
-        })
+        prediction = models[model_name].predict(features)
+        return jsonify({"model": model_name, "prediction": prediction.tolist()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
+if __name__ == "__main__":
+    # Only used for local testing
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
